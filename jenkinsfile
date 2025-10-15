@@ -7,16 +7,16 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = 'chethan422/tomcat:v2'
+        IMAGE_NAME = 'chethan422/tomcat:v4'
         NAMESPACE = 'microdegree'
         CLUSTER_NAME = 'microdegree-cluster'
-        AWS_REGION = 'us-east-1'
+        AWS_REGION = 'ap-south-1'
     }
 
     stages {
         stage('Git Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/chethan-nexon/jenkins-112.git'
+                git branch: 'main', url: 'https://github.com/chethan-nexon/ci-cd2.git'
             }
         }
 
