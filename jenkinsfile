@@ -1,0 +1,115 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'java-21'
+        maven 'maven'
+    }
+
+    environment {
+        IMAGE_NAME = 'chethan422/tomcat:v2'
+        NAMESPACE = 'microdegree'
+        CLUSTER_NAME = 'microdegree-cluster'
+        AWS_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/chethan-nexon/jenkins-112.git'
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                sh 'mvn compile'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean install'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME} ."
+            }
+        }
+
+        stage('Docker Image Scan') {
+            steps {
+                sh "trivy image --format table -o trivy-image-report.html ${IMAGE_NAME}"
+            }
+        }
+
+        stage('Containerization') {
+            steps {
+                sh '''
+                    docker stop c1 || true
+                    docker rm c1 || true
+                    docker run -it -d --name c1 -p 9000:8080 chethan422/tomcat:v2
+                '''
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credential', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image to Docker Hub') {
+            steps {
+                sh "docker push ${IMAGE_NAME}"
+            }
+        }
+
+        stage('Updating the Cluster') {
+            steps {
+                script {
+                    sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
+                }
+            }
+        }
+
+        stage('Deploy To Kubernetes') {
+            steps {
+                withKubeConfig(
+                    caCertificate: '',
+                    clusterName: "${CLUSTER_NAME}",
+                    contextName: '',
+                    credentialsId: 'kube',
+                    namespace: "${NAMESPACE}",
+                    restrictKubeConfigAccess: false,
+                    serverUrl: 'https://AB2AD8E7E396070F02E8CEC4D6A0D7E9.gr7.us-east-1.eks.amazonaws.com'
+                ) {
+                    sh "sed -i 's|replace|${IMAGE_NAME}|g' deployment.yml"
+                    sh "kubectl apply -f deployment.yml -n ${NAMESPACE}"
+                }
+            }
+        }
+
+        stage('Verify the Deployment') {
+            steps {
+                withKubeConfig(
+                    caCertificate: '',
+                    clusterName: "${CLUSTER_NAME}",
+                    contextName: '',
+                    credentialsId: 'kube',
+                    namespace: "${NAMESPACE}",
+                    restrictKubeConfigAccess: false,
+                    serverUrl: 'https://AB2AD8E7E396070F02E8CEC4D6A0D7E9.gr7.us-east-1.eks.amazonaws.com'
+                ) {
+                    sh "kubectl get pods -n ${NAMESPACE}"
+                    sh "kubectl get svc -n ${NAMESPACE}"
+                }
+            }
+        }
+    }
+}
